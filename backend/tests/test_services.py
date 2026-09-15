@@ -59,3 +59,16 @@ def test_next_datetime_is_future_and_correct_weekday():
     assert dt > now
     assert dt.weekday() == 5  # Saturday
     assert dt.hour == 11 and dt.minute == 30  # start + 30 min slack
+
+
+def test_candidate_datetimes_offers_several_future_options():
+    now = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)  # Tuesday
+    blocks = [
+        {"day": "sat", "start": "10:00", "end": "16:00"},
+        {"day": "wed", "start": "19:00", "end": "23:00"},
+    ]
+    slots = avail.candidate_datetimes(blocks, now=now, limit=6)
+    assert 2 <= len(slots) <= 6
+    assert slots == sorted(slots)  # chronological
+    assert all(s > now for s in slots)
+    assert len(set(slots)) == len(slots)  # no duplicates

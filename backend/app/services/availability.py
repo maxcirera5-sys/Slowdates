@@ -62,3 +62,32 @@ def next_datetime_for_block(block: dict, *, now: datetime | None = None) -> date
 
     start_min = _to_minutes(block["start"]) + 30
     return datetime.combine(day, _minutes_to_time(start_min), tzinfo=timezone.utc)
+
+
+def candidate_datetimes(
+    blocks: list[dict], *, now: datetime | None = None, limit: int = 6
+) -> list[datetime]:
+    """Concrete UTC datetimes the man can choose 3 options from (brief §5).
+
+    Walks the overlapping blocks (already sorted earliest-first) and, within
+    each, offers a couple of start times spaced ~2h apart. Returns up to
+    `limit` future datetimes, de-duplicated and chronologically ordered.
+    """
+    out: list[datetime] = []
+    for block in blocks:
+        base = next_datetime_for_block(block, now=now)
+        window_end = _to_minutes(block["end"])
+        offset_hours = 0
+        # Offer start times while they still leave >= 60 min inside the window.
+        while True:
+            slot = base + timedelta(hours=offset_hours)
+            slot_min = slot.hour * 60 + slot.minute
+            if slot_min + 60 > window_end and offset_hours > 0:
+                break
+            if slot not in out:
+                out.append(slot)
+            offset_hours += 2
+            if offset_hours > 8:  # safety guard
+                break
+    out.sort()
+    return out[:limit]

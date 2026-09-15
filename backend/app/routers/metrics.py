@@ -21,10 +21,12 @@ router = APIRouter(tags=["meta"])
 
 @router.get("/health")
 def health():
+    engine = "claude" if client.is_live() else "heuristic"
     return {
         "status": "ok",
-        "compatibility_engine": "claude" if client.is_live() else "heuristic",
-        "date_planner_engine": "claude" if client.is_live() else "heuristic",
+        "profile_engine": engine,
+        "compatibility_engine": engine,
+        "date_planner_engine": engine,
     }
 
 

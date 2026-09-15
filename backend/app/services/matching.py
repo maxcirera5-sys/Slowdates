@@ -56,7 +56,9 @@ def generate_matches_for(db: Session, user: User) -> list[Match]:
             db.add(match)
 
         match.compatibility_score = result.compatibility_score
+        match.shared_values = result.shared_values
         match.shared_interests = result.shared_interests
+        match.breakdown = result.breakdown
         match.reasoning = result.reasoning
         match.suggested_date_category = result.suggested_date_category
         if match.status == MatchStatus.expired:

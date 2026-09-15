@@ -105,3 +105,38 @@ select, input {
   background: var(--card); border-top: 1px solid var(--line); font-size: 13px; color: var(--muted);
 }
 [hidden] { display: none !important; }
+
+/* --- AI deep profile (concept 1) --- */
+.ai-summary {
+  font-size: 14px; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 8px; padding: 8px 12px; margin: 8px 0;
+}
+.trait-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.trait {
+  font-size: 12px; font-weight: 600; color: var(--accent);
+  background: #fdeeeb; border: 1px solid #f6c9c0;
+  border-radius: 999px; padding: 3px 10px;
+}
+.mini-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin-top: 8px; }
+.mini b { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); }
+
+/* --- Compatibility breakdown bars (concept 2) --- */
+.bars { display: grid; gap: 6px; margin: 10px 0; }
+.bar-row { display: grid; grid-template-columns: 92px 1fr 38px; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); }
+.bar { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.bar-row .pct { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* --- Date agreement flow (concept 5) --- */
+.plan { border-left: 3px solid var(--accent); }
+.meet { font-size: 14px; margin: 6px 0; }
+.flow-state { font-size: 13px; color: var(--muted); margin: 4px 0 12px; }
+.slot-list { display: grid; gap: 8px; margin: 10px 0; }
+.slot {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg); cursor: pointer;
+}
+.slot input { width: auto; }
+h3 { font-size: 15px; margin: 6px 0; }
+hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }

@@ -1,5 +1,6 @@
 // Slowdates demo frontend — a thin client over the API that walks the brief's
-// five screens. No framework, no build step.
+// concepts: AI-built profile, value-driven compatibility, no chat, and the
+// gendered date-acceptance flow. No framework, no build step.
 
 const api = {
   async get(path) { return json(await fetch(path)); },
@@ -22,15 +23,16 @@ const state = {
   matches: [],
   activeMatch: null,
   proposal: null,
+  picks: new Set(),  // proposer's chosen slots (screen 3)
   screen: "pick",    // pick | feed | proposal | confirmed | feedback
 };
 
 const app = document.getElementById("app");
 const STEPS = [
-  ["pick", "1 · Perfil"],
-  ["feed", "2 · Matches"],
-  ["proposal", "3 · Propuesta"],
-  ["confirmed", "4 · Confirmación"],
+  ["pick", "1 · Perfil IA"],
+  ["feed", "2 · Compatibilidad"],
+  ["proposal", "3 · Acuerdo de cita"],
+  ["confirmed", "4 · Confirmada"],
   ["feedback", "5 · Feedback"],
 ];
 
@@ -44,11 +46,13 @@ function renderSteps() {
 }
 
 function otherId(m) { return m.user_a_id === state.me.id ? m.user_b_id : m.user_a_id; }
-function userName(id) { const u = state.users.find(u => u.id === id); return u ? u.name : `#${id}`; }
+function userById(id) { return state.users.find(u => u.id === id); }
+function userName(id) { const u = userById(id); return u ? u.name : `#${id}`; }
 function fmtDate(iso) {
   return new Date(iso).toLocaleString("es-ES",
     { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
 }
+function esc(s) { return String(s ?? "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 
 async function boot() {
   try {
@@ -62,30 +66,35 @@ async function boot() {
 function render() {
   renderSteps();
   document.getElementById("whoami").textContent =
-    state.me ? `Activo: ${state.me.name}` : "Sin usuario activo";
+    state.me ? `Activo: ${state.me.name} (${genderLabel(state.me.gender)})` : "Sin usuario activo";
   ({ pick: screenPick, feed: screenFeed, proposal: screenProposal,
      confirmed: screenConfirmed, feedback: screenFeedback }[state.screen])();
 }
 
-// Screen 1 — pick a demo profile (stands in for onboarding).
+function genderLabel(g) { return g === "male" ? "él" : g === "female" ? "ella" : "—"; }
+
+// --------------------------------------------------------------------------- //
+// Screen 1 — pick a demo profile; show the AI-built deep profile.
+// --------------------------------------------------------------------------- //
 function screenPick() {
   app.innerHTML = `
     <h2>¿Quién eres?</h2>
-    <p class="sub">Elige un perfil sembrado para recorrer el flujo. En la app real
-      esto es el cuestionario de gustos y disponibilidad.</p>
+    <p class="sub">Elige un perfil sembrado. En la app real, la IA construye este
+      perfil profundo a partir de tus respuestas de onboarding: personalidad,
+      valores, ambiciones, estilo de vida y tipo de relación.</p>
     <div class="card">
       <div class="row">
         <select id="user-select">
-          ${state.users.map(u => `<option value="${u.id}">${u.name} · ${u.city || ""}</option>`).join("")}
+          ${state.users.map(u => `<option value="${u.id}">${esc(u.name)} · ${genderLabel(u.gender)} · ${esc(u.city || "")}</option>`).join("")}
         </select>
         <button class="primary" id="go">Entrar</button>
       </div>
     </div>
-    ${state.users.map(u => profileCard(u)).join("")}
+    ${state.users.map(profileCard).join("")}
   `;
   document.getElementById("go").onclick = async () => {
     const id = Number(document.getElementById("user-select").value);
-    state.me = state.users.find(u => u.id === id);
+    state.me = userById(id);
     await loadMatches();
     state.screen = "feed";
     render();
@@ -96,11 +105,23 @@ function profileCard(u) {
   const p = u.preferences || {};
   return `<div class="card">
     <div class="row spread">
-      <span class="name">${u.name}</span>
-      <span class="muted">${(p.budget || "").toUpperCase()} · ${u.city || ""}</span>
+      <span class="name">${esc(u.name)} <span class="muted">· ${genderLabel(u.gender)}</span></span>
+      <span class="muted">${esc((p.budget || "").toUpperCase())} · ${esc(u.city || "")}</span>
     </div>
-    <div class="chips">${(p.interests || []).map(i => `<span class="chip">${i}</span>`).join("")}</div>
+    <div class="ai-summary">🤖 ${esc(p.ai_summary || "Perfil en construcción")}</div>
+    <div class="trait-row">${(p.personality_traits || []).map(t => `<span class="trait">${esc(t)}</span>`).join("")}</div>
+    <div class="mini-grid">
+      ${miniList("Valores", p.values)}
+      ${miniList("Ambiciones", p.ambitions)}
+      ${miniList("Intereses", p.interests)}
+      ${miniList("Favoritos ★", p.favorite_venues)}
+    </div>
   </div>`;
+}
+
+function miniList(label, items) {
+  if (!items || !items.length) return "";
+  return `<div class="mini"><b>${label}</b><div class="chips">${items.map(i => `<span class="chip">${esc(i)}</span>`).join("")}</div></div>`;
 }
 
 async function loadMatches() {
@@ -108,13 +129,15 @@ async function loadMatches() {
   state.matches = await api.get(`/matches?user_id=${state.me.id}`);
 }
 
-// Screen 2 — match feed with visible compatibility score.
+// --------------------------------------------------------------------------- //
+// Screen 2 — value-driven compatibility feed.
+// --------------------------------------------------------------------------- //
 function screenFeed() {
   const pending = state.matches.filter(m => m.status !== "expired");
   app.innerHTML = `
-    <h2>Tus matches</h2>
-    <p class="sub">El Motor de Compatibilidad puntuó a cada persona de tu radio.
-      Acepta a alguien; si la otra parte también acepta, la IA planifica la cita.</p>
+    <h2>Tu compatibilidad</h2>
+    <p class="sub">La IA no puntúa por hobbies: pesa valores, objetivos de vida,
+      personalidad y estilo de comunicación. Si ambos aceptáis, planifica la cita.</p>
     ${pending.length ? pending.map(matchCard).join("") :
       `<div class="notice warn">Sin matches por encima del umbral. Prueba con otro perfil.</div>`}
   `;
@@ -129,111 +152,271 @@ function screenFeed() {
 function matchCard(m) {
   const pct = Math.round(m.compatibility_score * 100);
   const oid = otherId(m);
+  const other = userById(oid) || {};
+  const op = other.preferences || {};
   const mineIsA = m.user_a_id === state.me.id;
   const iAccepted = mineIsA ? m.accepted_by_a : m.accepted_by_b;
-  const shared = new Set((m.shared_interests || []).map(s => s.toLowerCase()));
-  const other = state.users.find(u => u.id === oid);
-  const interests = (other?.preferences?.interests) || m.shared_interests || [];
+  const bd = m.breakdown || {};
   return `<div class="card">
     <div class="row spread">
       <div class="row">
         <div class="score-ring" style="--p:${pct}"><i>${pct}%</i></div>
         <div>
-          <div class="big">${userName(oid)}</div>
-          <div class="muted">${m.suggested_date_category || "cita sugerida"}</div>
+          <div class="big">${esc(userName(oid))} <span class="muted">· ${genderLabel(other.gender)}</span></div>
+          <div class="muted">${esc(m.suggested_date_category || "cita sugerida")}</div>
         </div>
       </div>
       <div class="row">
         <button class="ghost" id="pass-${m.id}" ${m.status !== "pending" ? "disabled" : ""}>Pasar</button>
         <button class="primary" id="accept-${m.id}" ${iAccepted ? "disabled" : ""}>
-          ${iAccepted ? "Aceptado ✓" : "Aceptar"}</button>
+          ${iAccepted ? "Aceptado ✓" : "Quiero conocerle"}</button>
       </div>
     </div>
-    <div class="chips">
-      ${interests.map(i => `<span class="chip ${shared.has(i.toLowerCase()) ? "shared" : ""}">${i}</span>`).join("")}
-    </div>
-    <div class="why">${m.reasoning || ""}</div>
+    <div class="ai-summary">🤖 ${esc(op.ai_summary || "")}</div>
+    ${bars(bd)}
+    ${m.shared_values && m.shared_values.length ? `<div class="mini"><b>Valores en común</b>
+      <div class="chips">${m.shared_values.map(v => `<span class="chip shared">${esc(v)}</span>`).join("")}</div></div>` : ""}
+    <div class="why">${esc(m.reasoning || "")}</div>
   </div>`;
+}
+
+const DIM_LABELS = {
+  values: "Valores", ambitions: "Objetivos", personality: "Personalidad",
+  communication: "Comunicación", lifestyle: "Estilo de vida", interests: "Intereses",
+};
+function bars(bd) {
+  const keys = Object.keys(DIM_LABELS).filter(k => k in bd);
+  if (!keys.length) return "";
+  return `<div class="bars">${keys.map(k => {
+    const v = Math.round((bd[k] || 0) * 100);
+    return `<div class="bar-row"><span>${DIM_LABELS[k]}</span>
+      <div class="bar"><i style="width:${v}%"></i></div><span class="pct">${v}%</span></div>`;
+  }).join("")}</div>`;
 }
 
 async function decideMatch(m, accept) {
   const res = await api.post(`/matches/${m.id}/decision`, { user_id: state.me.id, accept });
   await loadMatches();
-  if (accept && res.proposal) {
-    state.activeMatch = m;
-    state.proposal = res.proposal;
-    state.screen = "proposal";
-  } else if (accept && res.status === "accepted") {
-    // Match accepted but not plannable (e.g. no shared schedule).
-    state.activeMatch = m;
-    state.proposal = null;
+  if (accept && (res.proposal || res.status === "accepted")) {
+    state.activeMatch = state.matches.find(x => x.id === m.id) || m;
+    state.proposal = res.proposal || null;
+    state.picks = new Set();
     state.screen = "proposal";
   }
   render();
 }
 
-// Screen 3 — the AI's date proposal.
+// --------------------------------------------------------------------------- //
+// Screen 3 — the gendered date-acceptance flow (brief §5).
+// --------------------------------------------------------------------------- //
 function screenProposal() {
   const p = state.proposal;
   if (!p) {
     app.innerHTML = `
-      <h2>Match aceptado</h2>
+      <h2>Interés mutuo</h2>
       <div class="notice warn">La IA aún no encontró un plan (sin horarios en común
         o sin lugares en la zona). Vuelve a intentarlo más tarde.</div>
-      <button class="ghost" id="back">← Volver a matches</button>`;
+      <button class="ghost" id="back">← Volver</button>`;
     document.getElementById("back").onclick = () => { state.screen = "feed"; render(); };
     return;
   }
-  const mineIsA = state.activeMatch.user_a_id === state.me.id;
-  const iAccepted = mineIsA ? p.accepted_by_a : p.accepted_by_b;
-  app.innerHTML = `
-    <h2>Propuesta de cita</h2>
-    <p class="sub">El Motor de Planificación eligió lugar y hora por ustedes.
-      Sin negociar por chat: aceptas o pides alternativa.</p>
-    <div class="card">
-      <div class="plan-venue">${p.venue_name}</div>
-      <div class="muted">${p.venue_address || ""}</div>
-      <div class="plan-when">🗓 ${fmtDate(p.datetime_utc)}</div>
-      <div class="why">${p.why}</div>
-      ${p.alternative ? `<div class="notice">Alternativa: <b>${p.alternative.venue}</b>
-        — ${p.alternative.reasoning || ""}</div>` : ""}
-      <div class="row" style="margin-top:10px">
-        <button class="primary" id="accept" ${iAccepted ? "disabled" : ""}>
-          ${iAccepted ? "Aceptado ✓ (esperando a la otra parte)" : "Aceptar plan"}</button>
-        <button class="ghost" id="alt">Pedir alternativa</button>
-      </div>
-    </div>
-    <button class="link" id="sim">simular que la otra persona acepta →</button>
+  const iAmProposer = state.me.id === p.proposer_id;
+  const proposerName = userName(p.proposer_id);
+  const responderName = userName(p.responder_id);
+  const flowNote = p.flow_type === "hetero"
+    ? `La propuesta llega primero a <b>${esc(proposerName)}</b> (él); elige 3 horarios y luego <b>${esc(responderName)}</b> (ella) decide.`
+    : `La propuesta llega primero a <b>${esc(proposerName)}</b>; elige 3 horarios y luego responde <b>${esc(responderName)}</b>.`;
+
+  const header = `
+    <h2>Acuerdo de cita</h2>
+    <p class="sub">${flowNote} Sin negociar por chat.</p>
+    ${venueBlock(p)}
+    <div class="flow-state">Estado: <b>${statusLabel(p.status)}</b></div>
   `;
-  document.getElementById("accept").onclick = () => decideProposal("accept", state.me.id);
-  document.getElementById("alt").onclick = () => decideProposal("request_alternative", state.me.id);
-  document.getElementById("sim").onclick = () =>
-    decideProposal("accept", otherId(state.activeMatch));
+
+  let body = "";
+  if (p.status === "awaiting_proposer") {
+    body = iAmProposer ? proposerPicker(p) : waitingFor(proposerName, "elija 3 horarios", p.proposer_id, "propose");
+  } else if (p.status === "awaiting_responder") {
+    body = !iAmProposer ? responderPicker(p) : waitingFor(responderName, "elija o contraproponga", p.responder_id, "respond");
+  } else if (p.status === "counter_proposed") {
+    body = iAmProposer ? counterView(p) : waitingFor(proposerName, "acepte tu contrapropuesta", p.proposer_id, "counter");
+  } else if (p.status === "confirmed") {
+    state.screen = "confirmed"; render(); return;
+  } else if (p.status === "rejected") {
+    body = `<div class="notice warn">Propuesta descartada. ${state._replan || "Buscando otra opción…"}</div>
+            <button class="ghost" id="back">← Volver a matches</button>`;
+  }
+
+  app.innerHTML = header + body;
+  wireProposal(p, iAmProposer);
 }
 
-async function decideProposal(action, userId) {
-  const res = await api.post(`/proposals/${state.proposal.id}/decision`,
-    { user_id: userId, action });
-  if (res.new_proposal) {
-    state.proposal = res.new_proposal;
-    render();
-    return;
+function venueBlock(p) {
+  return `<div class="card plan">
+    <div class="plan-venue">${esc(p.venue_name)}</div>
+    <div class="muted">${esc(p.venue_address || "")}</div>
+    <div class="meet">📍 Punto de encuentro: ${esc(p.meeting_point || "")}</div>
+    <div class="why">${esc(p.why || "")}</div>
+    ${p.alternative ? `<div class="notice">Alternativa de la IA: <b>${esc(p.alternative.venue)}</b> — ${esc(p.alternative.reasoning || "")}</div>` : ""}
+  </div>`;
+}
+
+function statusLabel(s) {
+  return {
+    awaiting_proposer: "esperando que él elija horarios",
+    awaiting_responder: "esperando que ella responda",
+    counter_proposed: "contrapropuesta en revisión",
+    confirmed: "confirmada",
+    rejected: "descartada",
+  }[s] || s;
+}
+
+function proposerPicker(p) {
+  const slots = p.candidate_slots || [];
+  return `<div class="card">
+    <h3>Elige hasta 3 horarios</h3>
+    <p class="sub">La IA propuso el lugar. Tú marcas los horarios que te van bien.</p>
+    <div class="slot-list">
+      ${slots.map((s, i) => `<label class="slot"><input type="checkbox" data-slot="${s}" ${i < 3 ? "checked" : ""}/> ${esc(fmtDate(s))}</label>`).join("")}
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="send-slots">Enviar mis 3 opciones</button>
+      <button class="ghost" id="decline-slots">No me interesa</button>
+    </div>
+  </div>`;
+}
+
+function responderPicker(p) {
+  const opts = p.time_options || [];
+  const cand = p.candidate_slots || [];
+  return `<div class="card">
+    <h3>Elige una opción o contrapropón</h3>
+    <p class="sub">${esc(userName(p.proposer_id))} propuso estos horarios:</p>
+    <div class="slot-list">
+      ${opts.map(s => `<label class="slot"><input type="radio" name="pick" data-opt="${s}"/> ${esc(fmtDate(s))}</label>`).join("")}
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="select-opt">Elegir esta opción</button>
+      <button class="ghost" id="reject-opt">Ninguna me va</button>
+    </div>
+    <hr/>
+    <h3>… o contrapropón otro horario</h3>
+    <div class="row">
+      <select id="counter-slot">
+        ${cand.map(s => `<option value="${s}">${esc(fmtDate(s))}</option>`).join("")}
+      </select>
+      <button class="ghost" id="send-counter">Contraproponer</button>
+    </div>
+  </div>`;
+}
+
+function counterView(p) {
+  return `<div class="card">
+    <h3>Contrapropuesta recibida</h3>
+    <div class="plan-when">🗓 ${esc(fmtDate(p.counter_datetime))}</div>
+    <p class="sub">${esc(userName(p.responder_id))} propone este horario en su lugar.</p>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="accept-counter">Acepto este horario</button>
+      <button class="ghost" id="decline-counter">Prefiero mis opciones</button>
+    </div>
+  </div>`;
+}
+
+function waitingFor(name, what, actAsId, kind) {
+  return `<div class="card">
+    <div class="notice">Esperando a que <b>${esc(name)}</b> ${what}.</div>
+    <button class="link" id="sim" data-act="${actAsId}" data-kind="${kind}">actuar como ${esc(name)} para la demo →</button>
+  </div>`;
+}
+
+function wireProposal(p, iAmProposer) {
+  const back = document.getElementById("back");
+  if (back) back.onclick = () => { state.screen = "feed"; render(); };
+
+  const sendSlots = document.getElementById("send-slots");
+  if (sendSlots) sendSlots.onclick = () => sendProposerSlots(p, state.me.id, true);
+  const declineSlots = document.getElementById("decline-slots");
+  if (declineSlots) declineSlots.onclick = () => sendProposerSlots(p, state.me.id, false);
+
+  const selectOpt = document.getElementById("select-opt");
+  if (selectOpt) selectOpt.onclick = () => {
+    const el = document.querySelector('input[name="pick"]:checked');
+    if (!el) return alert("Elige una opción");
+    respond(p, state.me.id, "select", el.dataset.opt);
+  };
+  const rejectOpt = document.getElementById("reject-opt");
+  if (rejectOpt) rejectOpt.onclick = () => respond(p, state.me.id, "reject", null);
+  const sendCounter = document.getElementById("send-counter");
+  if (sendCounter) sendCounter.onclick = () =>
+    respond(p, state.me.id, "counter", document.getElementById("counter-slot").value);
+
+  const acceptCounter = document.getElementById("accept-counter");
+  if (acceptCounter) acceptCounter.onclick = () => decideCounter(p, state.me.id, true);
+  const declineCounter = document.getElementById("decline-counter");
+  if (declineCounter) declineCounter.onclick = () => decideCounter(p, state.me.id, false);
+
+  // Demo helper: act as the other person for whichever step is pending.
+  const sim = document.getElementById("sim");
+  if (sim) sim.onclick = () => simulateOther(p, Number(sim.dataset.act), sim.dataset.kind);
+}
+
+async function sendProposerSlots(p, userId, accept) {
+  const slots = accept
+    ? [...document.querySelectorAll('input[data-slot]:checked')].map(el => el.dataset.slot).slice(0, 3)
+    : [];
+  const res = await api.post(`/proposals/${p.id}/slots`, { user_id: userId, accept, slots });
+  afterProposalAction(res);
+}
+
+async function respond(p, userId, action, dt) {
+  const res = await api.post(`/proposals/${p.id}/respond`,
+    { user_id: userId, action, chosen_datetime: dt });
+  afterProposalAction(res);
+}
+
+async function decideCounter(p, userId, accept) {
+  const res = await api.post(`/proposals/${p.id}/counter`, { user_id: userId, accept });
+  afterProposalAction(res);
+}
+
+// Walk the pending step automatically, acting as the other person.
+async function simulateOther(p, actId, kind) {
+  if (kind === "propose") {
+    await sendProposerSlots(p, actId, true);
+  } else if (kind === "respond") {
+    const fresh = await api.get(`/proposals/${p.id}`);
+    const opt = (fresh.time_options || [])[0];
+    await respond(fresh, actId, "select", opt);
+  } else if (kind === "counter") {
+    await decideCounter(p, actId, true);
   }
-  // Refresh proposal state.
-  state.proposal = await api.get(`/proposals/${state.proposal.id}`);
-  if (res.checkin_enabled) { state.screen = "confirmed"; }
+}
+
+function afterProposalAction(res) {
+  if (res.new_proposal) {
+    state._replan = "La IA generó otra propuesta.";
+    state.proposal = res.new_proposal;
+  } else if (res.proposal) {
+    state.proposal = res.proposal;
+  }
+  if (res.confirmed) state.screen = "confirmed";
   render();
 }
 
+// --------------------------------------------------------------------------- //
 // Screen 4 — confirmation + safe check-in.
+// --------------------------------------------------------------------------- //
 function screenConfirmed() {
   const p = state.proposal;
   app.innerHTML = `
     <h2>¡Cita confirmada!</h2>
-    <div class="notice ok">Ambos aceptaron. Check-in seguro activado.</div>
-    <div class="card">
-      <div class="plan-venue">${p.venue_name}</div>
-      <div class="plan-when">🗓 ${fmtDate(p.datetime_utc)}</div>
+    <div class="notice ok">Acuerdo cerrado sin una sola línea de chat.</div>
+    <div class="card plan">
+      <div class="plan-venue">${esc(p.venue_name)}</div>
+      <div class="muted">${esc(p.venue_address || "")}</div>
+      <div class="plan-when">🗓 ${esc(fmtDate(p.selected_datetime))}</div>
+      <div class="meet">📍 ${esc(p.meeting_point || "")}</div>
       <div class="row" style="margin-top:10px">
         <button id="checkin">📍 Hacer check-in seguro</button>
         <button class="primary" id="tofeedback">Ya fui a la cita →</button>
@@ -245,7 +428,9 @@ function screenConfirmed() {
   document.getElementById("tofeedback").onclick = () => { state.screen = "feedback"; render(); };
 }
 
+// --------------------------------------------------------------------------- //
 // Screen 5 — post-date feedback.
+// --------------------------------------------------------------------------- //
 function screenFeedback() {
   app.innerHTML = `
     <h2>¿Qué tal la cita?</h2>
@@ -284,7 +469,7 @@ function screenFeedback() {
 
 document.getElementById("reset-btn").onclick = () => {
   state.me = null; state.matches = []; state.proposal = null;
-  state.activeMatch = null; state.screen = "pick"; render();
+  state.activeMatch = null; state.picks = new Set(); state.screen = "pick"; render();
 };
 
 boot();

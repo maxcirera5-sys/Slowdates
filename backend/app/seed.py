@@ -1,6 +1,8 @@
 """Seed the DB with demo users and a small Madrid-centred venue catalogue.
 
-Lets the whole end-to-end flow (screens 1-5) be demoed offline with no keys.
+Lets the whole end-to-end flow be demoed offline with no keys. The demo users
+carry deep-profile answers (values, ambitions, personality signals), a gender
+(so the acceptance flow can route man -> woman), and five favourite venues.
 Idempotent: running twice will not duplicate rows.
 """
 
@@ -9,8 +11,9 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .ai import profiler
 from .database import SessionLocal, init_db
-from .models import Preferences, User, Venue
+from .models import Gender, Preferences, User, Venue
 
 # Rough Madrid coordinates for a believable midpoint/venue demo.
 _VENUES = [
@@ -62,17 +65,33 @@ _VENUES = [
         "category": "gastronomía", "price_level": "alto",
         "tags": ["cócteles", "vino", "atardecer"],
     },
+    {
+        "name": "Cafetería La Bicicleta",
+        "address": "Plaza de San Ildefonso 9, Madrid",
+        "lat": 40.4252, "lng": -3.7018,
+        "ambiance": ["tranquilo", "interior"],
+        "category": "café", "price_level": "medio",
+        "tags": ["café de especialidad", "brunch", "coworking"],
+    },
 ]
 
 _USERS = [
     {
         "name": "Ana",
         "email": "ana@example.com",
+        "gender": Gender.female, "seeking": Gender.male,
         "lat": 40.4400, "lng": -3.7000, "city": "Madrid",
+        "bio": "Diseñadora que vive entre cuadernos, senderos y buen café.",
         "interests": ["café de especialidad", "senderismo", "museos"],
         "ambiance": ["tranquilo", "exterior"],
         "budget": "medio",
-        "lifestyle": {"smoker": False, "pets": True, "preferred_time": "mañana"},
+        "favorite_venues": ["Café Nube", "Museo del Prado", "Sendero Casa de Campo",
+                            "Cafetería La Bicicleta", "Terraza Las Vistas"],
+        "values": ["honestidad", "crecimiento personal", "naturaleza"],
+        "ambitions": ["viajar", "montar un estudio propio"],
+        "communication_style": "cercana y pausada",
+        "relationship_type": "algo serio y con calma",
+        "lifestyle": {"smoker": False, "pets": True, "early_riser": True},
         "availability": [
             {"day": "sat", "start": "10:00", "end": "14:00"},
             {"day": "wed", "start": "18:00", "end": "22:00"},
@@ -81,11 +100,19 @@ _USERS = [
     {
         "name": "Bruno",
         "email": "bruno@example.com",
+        "gender": Gender.male, "seeking": Gender.female,
         "lat": 40.4050, "lng": -3.7100, "city": "Madrid",
+        "bio": "Ingeniero curioso, adicto al café de origen y a las rutas de montaña.",
         "interests": ["café de especialidad", "senderismo", "juegos de mesa"],
         "ambiance": ["tranquilo", "exterior"],
         "budget": "medio",
-        "lifestyle": {"smoker": False, "pets": True, "preferred_time": "mañana"},
+        "favorite_venues": ["Café Nube", "Sendero Casa de Campo",
+                            "Bar de Juegos Meeple", "Cafetería La Bicicleta"],
+        "values": ["honestidad", "crecimiento personal", "curiosidad"],
+        "ambitions": ["viajar", "aprender a cocinar de todo"],
+        "communication_style": "cercana y pausada",
+        "relationship_type": "algo serio y con calma",
+        "lifestyle": {"smoker": False, "pets": True, "early_riser": True},
         "availability": [
             {"day": "sat", "start": "11:00", "end": "16:00"},
             {"day": "wed", "start": "19:00", "end": "23:00"},
@@ -94,14 +121,41 @@ _USERS = [
     {
         "name": "Carla",
         "email": "carla@example.com",
+        "gender": Gender.female, "seeking": Gender.male,
         "lat": 40.4180, "lng": -3.6950, "city": "Madrid",
+        "bio": "De cenas largas, cine de autor y conciertos hasta tarde.",
         "interests": ["gastronomía asiática", "cine", "música"],
         "ambiance": ["animado", "interior"],
         "budget": "alto",
-        "lifestyle": {"smoker": True, "pets": False, "preferred_time": "noche"},
+        "favorite_venues": ["Ramen Kagura", "Terraza Las Vistas"],
+        "values": ["ambición", "disfrute", "lealtad"],
+        "ambitions": ["crecer en su carrera", "ver el mundo"],
+        "communication_style": "directa y expresiva",
+        "relationship_type": "algo sin prisas, ver cómo fluye",
+        "lifestyle": {"smoker": True, "pets": False, "early_riser": False},
         "availability": [
             {"day": "fri", "start": "20:00", "end": "23:30"},
             {"day": "sat", "start": "21:00", "end": "23:59"},
+        ],
+    },
+    {
+        "name": "David",
+        "email": "david@example.com",
+        "gender": Gender.male, "seeking": Gender.female,
+        "lat": 40.4210, "lng": -3.7020, "city": "Madrid",
+        "bio": "Cocinero de vocación, foodie de ramen y cócteles con vistas.",
+        "interests": ["gastronomía asiática", "música", "cócteles"],
+        "ambiance": ["animado", "interior"],
+        "budget": "alto",
+        "favorite_venues": ["Ramen Kagura", "Terraza Las Vistas", "Bar de Juegos Meeple"],
+        "values": ["ambición", "disfrute", "creatividad"],
+        "ambitions": ["abrir un restaurante", "ver el mundo"],
+        "communication_style": "directa y expresiva",
+        "relationship_type": "algo sin prisas, ver cómo fluye",
+        "lifestyle": {"smoker": False, "pets": False, "early_riser": False},
+        "availability": [
+            {"day": "fri", "start": "20:00", "end": "23:30"},
+            {"day": "sat", "start": "20:30", "end": "23:59"},
         ],
     },
 ]
@@ -115,13 +169,24 @@ def seed(db: Session) -> None:
         if db.scalar(select(User).where(User.email == u["email"])):
             continue
         user = User(
-            name=u["name"], email=u["email"], lat=u["lat"], lng=u["lng"],
-            city=u["city"], identity_verified=True,
+            name=u["name"], email=u["email"],
+            gender=u["gender"], seeking=u["seeking"],
+            lat=u["lat"], lng=u["lng"], city=u["city"], identity_verified=True,
         )
         user.preferences = Preferences(
+            bio=u["bio"],
             interests=u["interests"], ambiance=u["ambiance"], budget=u["budget"],
+            favorite_venues=u["favorite_venues"],
+            values=u["values"], ambitions=u["ambitions"],
+            communication_style=u["communication_style"],
+            relationship_type=u["relationship_type"],
             lifestyle=u["lifestyle"], availability=u["availability"],
         )
+        # Derive the deep AI profile up front so the demo has rich data (brief §1).
+        result = profiler.build_profile(user.preferences)
+        user.preferences.personality_traits = result.personality_traits
+        user.preferences.ai_summary = result.summary
+        user.preferences.profile_source = result.source
         db.add(user)
     db.commit()
 
