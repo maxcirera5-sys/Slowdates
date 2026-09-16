@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "ALMA",
+    "slug": "alma",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "alma",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#060816",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.alma.app"
+    },
+    "android": {
+      "package": "com.alma.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#060816"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "extra": {
+      "supabaseUrl": "",
+      "supabaseAnonKey": "",
+      "openaiApiKey": ""
+    }
+  }
+}
