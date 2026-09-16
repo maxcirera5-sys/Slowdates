@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .database import SessionLocal, init_db
-from .routers import dates, matches, metrics, users
+from .routers import compatibility, dates, matches, metrics, test, users
 from .seed import seed
 
 
@@ -44,6 +44,8 @@ app.include_router(metrics.router)
 app.include_router(users.router)
 app.include_router(matches.router)
 app.include_router(dates.router)
+app.include_router(test.router)
+app.include_router(compatibility.router)
 
 
 # Serve the vanilla-JS frontend at / when it is present.

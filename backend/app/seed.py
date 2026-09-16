@@ -162,6 +162,11 @@ _USERS = [
 
 
 def seed(db: Session) -> None:
+    # Seed the onboarding-test question catalogue (idempotent).
+    from .personality.seed_questions import seed_questions
+
+    seed_questions(db)
+
     if db.scalar(select(Venue)) is None:
         db.add_all([Venue(**v) for v in _VENUES])
 

@@ -243,3 +243,87 @@ class Venue(Base):
     @property
     def location(self) -> tuple[float, float]:
         return (self.lat, self.lng)
+
+
+# --------------------------------------------------------------------------- #
+# Personality test + compatibility engine (onboarding test, 32 questions)
+# --------------------------------------------------------------------------- #
+class QuestionType(str, enum.Enum):
+    likert = "likert"
+    single_choice = "single_choice"
+    multi_choice = "multi_choice"
+    ranking = "ranking"
+
+
+class TestQuestion(Base):
+    """A single onboarding-test question (seeded, static catalogue)."""
+
+    __tablename__ = "test_questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    block: Mapped[int] = mapped_column(Integer)  # 1-4
+    trait: Mapped[str] = mapped_column(String(60))  # openness / attachment_anxiety / children ...
+    text: Mapped[str] = mapped_column(Text)
+    qtype: Mapped[QuestionType] = mapped_column(Enum(QuestionType))
+    is_reverse: Mapped[bool] = mapped_column(default=False)
+    # options: [{"value": "...", "label": "..."}] for non-likert questions.
+    options: Mapped[list] = mapped_column(JSON, default=list)
+    is_hard_filter: Mapped[bool] = mapped_column(default=False)
+    active: Mapped[bool] = mapped_column(default=True)
+    order: Mapped[int] = mapped_column(Integer, default=0)  # order within a block
+
+
+class TestResponse(Base):
+    """One user's raw answer to one question."""
+
+    __tablename__ = "test_responses"
+    __table_args__ = (
+        UniqueConstraint("user_id", "question_id", name="uq_response_once"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("test_questions.id", ondelete="CASCADE")
+    )
+    # raw_value is JSON so it holds an int (likert), a str (single) or a list
+    # (multi / ranking) uniformly.
+    raw_value: Mapped[object] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class PersonalityProfile(Base):
+    """Derived profile, recalculated after a user completes the test."""
+
+    __tablename__ = "personality_profile"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True
+    )
+
+    # Big Five (0-1).
+    openness: Mapped[float] = mapped_column(Float, default=0.0)
+    conscientiousness: Mapped[float] = mapped_column(Float, default=0.0)
+    extraversion: Mapped[float] = mapped_column(Float, default=0.0)
+    agreeableness: Mapped[float] = mapped_column(Float, default=0.0)
+    emotional_stability: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # Attachment (0-1 each).
+    attachment_anxiety: Mapped[float] = mapped_column(Float, default=0.0)
+    attachment_avoidance: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # Values (block 3) — canonical selections used by the soft-value similarity.
+    relationship_intent: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    children: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    spirituality: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    ambition: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    habits: Mapped[list] = mapped_column(JSON, default=list)
+    hobbies_importance: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+    # Communication (block 4).
+    conflict_style: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    love_languages: Mapped[list] = mapped_column(JSON, default=list)
+    contact_frequency: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+    recalculated_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
